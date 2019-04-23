@@ -1,0 +1,178 @@
+---
+title: "5241_HW5_hx2259"
+author: "Haiqing Xu; hx2259"
+date: "April 17, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(ggplot2)
+```
+
+#Problem 4
+
+##Part 1 and Part 2
+```{r}
+train <- function(X,w,y){
+  p <- nrow(X)
+  n <- ncol(X)
+  
+  # initiate error to be a large number
+  error_min <- 10000
+  # initiate theta,j and m
+  theta_min <- 0
+  j_min <- 0
+  m <- 0
+  
+  for (j in 1:p){
+    values <- unique(X[j,])
+    for (theta in values){
+      y_hat_1 <- (((X[j,] > theta)) * 2 - 1) * 1
+      y_hat_2 <- (((X[j,] > theta)) * 2 - 1) * (-1)
+      error_1 <- sum(w * (y != y_hat_1))/sum(w)
+      error_2 <- sum(w* (y != y_hat_2))/sum(w)
+      if (error_1 < error_min){
+        error_min <- error_1
+        j_min <- j
+        theta_min <- theta
+        m <- 1
+      }
+      else if (error_2 < error_min){
+        error_min <- error_2
+        j_min <- j
+        theta_min <- theta
+        m <- -1
+      }
+      }
+    }
+  
+  # return index of minimal error
+  pars <- c(j_min, theta_min, m)
+  
+  return(pars)
+}
+```
+
+```{r}
+classify <- function(X, pars){
+  j <- pars[1]
+  theta <- pars[2]
+  m <- pars[3]
+  
+  pred <- ((X[j,] > theta) * 2 - 1) * m
+  
+  return(pred)
+}
+```
+
+```{r}
+agg_class <- function(X, alpha, allPars){
+  B <- nrow(allPars)
+  n <- ncol(X)
+  final_class <- rep(0, n)
+  
+  for (i in 1:B){
+    pred <- classify(X, allPars[i,])
+    final_class <- final_class + alpha[i] * pred
+  }
+  
+  return(sign(final_class))
+}
+```
+
+
+```{r}
+AdaBoost <- function(X.train, y.train, B){
+  set.seed(2019)
+  folds <- createFolds(1:ncol(X.train), k = 5)
+  error.train.matrix <- matrix(rep(NA, 5*B), nrow = B)
+  error.test.matrix <- matrix(rep(NA, 5*B), nrow = B)
+  
+  for (i in 1:5){
+    print(i)
+    # prepare training and test data
+    train.x <- X.train[,-folds[[i]]]
+    val.x <- X.train[,folds[[i]]]
+    train.y <- y.train[-folds[[i]]]
+    val.y <- y.train[folds[[i]]]
+    n <- ncol(train.x)
+  
+    # initialize allPars and alpha
+    allPars <- matrix(rep(NA, 3*B), nrow = B)
+    alpha <- rep(NA,B)
+    
+    for (b in 1:B){
+        if (b == 1){
+          # initial weight
+          w <- rep(1/n, n)
+        }
+
+        # train a weight learner on the weighted training data
+        pars <- train(train.x, w, train.y)
+        allPars[b,] <- pars
+
+        # predict on training data using ith
+        train.label <- classify(train.x, pars)
+
+        # compute weighted error
+        error.weighted <- sum(w*(train.label!=train.y))/sum(w)
+
+        # compute voting weights
+        alpha[b] <- log((1-error.weighted)/error.weighted)
+
+        # recompute weights
+        w <- w*exp(alpha[b]*(train.label!=train.y))
+
+        # compute cross validation training and test error
+        if (b == 1){
+          pars.all <- matrix( allPars[1:b,], ncol = 3)
+        }
+        else{
+          pars.all <- allPars[1:b,]
+        }
+        train.label.final <- agg_class(train.x,alpha[1:b], pars.all)
+        error.train.matrix[b,i] <- mean(train.label.final!=train.y)
+        val.label <- agg_class(val.x, alpha[1:b], pars.all)
+        error.test.matrix[b,i] <- mean(val.label!=val.y)
+    }
+  }
+  return(list(train = error.train.matrix, test = error.test.matrix))
+}
+```
+
+
+##Part 3
+```{r}
+# load data
+train3 <- t(as.matrix(read.table("train_3.txt", sep = ",")))
+train8 <- t(as.matrix(read.table("train_8.txt", sep = ",")))
+data.train <- cbind(train3, train8)
+y <- c( rep(1, ncol(train3)), rep(-1, ncol(train8)))
+```
+
+```{r}
+result <- AdaBoost(data.train,y,60)
+```
+
+
+##Part 4
+```{r}
+error.train <- apply(result$train, 1, mean)
+error.test <- apply(result$test, 1, mean)
+df.error <- data.frame(B = c(1:60, 1:60), error = c(error.train, error.test), 
+                       label = c(rep('train', 60), rep('test', 60) ))
+```
+
+```{r}
+# plot training and test error
+ggplot(df.error, aes(x = B, y = error, color = label   ,  group = label))+
+  geom_point() + geom_line()
+```
+
